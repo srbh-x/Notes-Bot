@@ -21,7 +21,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 sessions = {}
 
 TEMP_DIR = "temp"
-
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 
@@ -33,6 +32,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def new_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+
+    if user_id in sessions:
+        await update.message.reply_text(
+            f"You already have an active document:\n\n"
+            f"{sessions[user_id]['title']}\n\n"
+            f"Use /done or /cancel first."
+        )
+        return
 
     if not context.args:
         await update.message.reply_text(
@@ -49,6 +56,7 @@ async def new_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "title": title,
         "items": [],
         "temp_dir": user_temp_dir,
+        "media_groups": {},
     }
 
     await update.message.reply_text(
@@ -77,9 +85,7 @@ async def collect_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             largest_photo.file_id
         )
 
-        image_name = (
-            f"{update.message.message_id}.jpg"
-        )
+        image_name = f"{update.message.message_id}.jpg"
 
         image_path = os.path.join(
             session["temp_dir"],
@@ -88,10 +94,35 @@ async def collect_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await file.download_to_drive(image_path)
 
+    media_group_id = update.message.media_group_id
+
+    if media_group_id:
+        groups = session["media_groups"]
+
+        if media_group_id not in groups:
+            groups[media_group_id] = {
+                "text": text,
+                "images": [],
+            }
+
+            session["items"].append(
+                groups[media_group_id]
+            )
+
+        elif text and not groups[media_group_id]["text"]:
+            groups[media_group_id]["text"] = text
+
+        if image_path:
+            groups[media_group_id]["images"].append(
+                image_path
+            )
+
+        return
+
     session["items"].append(
         {
             "text": text,
-            "image": image_path,
+            "images": [image_path] if image_path else [],
         }
     )
 
@@ -117,7 +148,7 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for item in session["items"]:
 
         text = item["text"]
-        image = item["image"]
+        images = item["images"]
 
         if text:
             document.add_paragraph(
@@ -125,16 +156,23 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 style="List Bullet"
             )
 
-        if image and os.path.exists(image):
-            try:
-                document.add_picture(
-                    image,
-                    width=Inches(4.5)
-                )
-            except Exception as e:
-                print(
-                    f"Failed to add image: {e}"
-                )
+        if not text and images:
+            document.add_paragraph(
+                "Image Note",
+                style="List Bullet"
+            )
+
+        for image in images:
+            if image and os.path.exists(image):
+                try:
+                    document.add_picture(
+                        image,
+                        width=Inches(4.5)
+                    )
+                except Exception as e:
+                    print(
+                        f"Failed to add image: {e}"
+                    )
 
     safe_title = "".join(
         c
@@ -161,11 +199,38 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     del sessions[user_id]
 
 
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if user_id not in sessions:
+        await update.message.reply_text(
+            "No active document."
+        )
+        return
+
+    session = sessions[user_id]
+
+    image_count = 0
+    album_count = 0
+
+    for item in session["items"]:
+        image_count += len(item["images"])
+
+        if len(item["images"]) > 1:
+            album_count += 1
+
+    await update.message.reply_text(
+        f"Title: {session['title']}\n"
+        f"Items Collected: {len(session['items'])}\n"
+        f"Images Collected: {image_count}\n"
+        f"Albums Collected: {album_count}"
+    )
+
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     if user_id in sessions:
-
         temp_dir = sessions[user_id]["temp_dir"]
 
         if os.path.exists(temp_dir):
@@ -190,21 +255,11 @@ def main():
         .build()
     )
 
-    app.add_handler(
-        CommandHandler("start", start)
-    )
-
-    app.add_handler(
-        CommandHandler("new", new_doc)
-    )
-
-    app.add_handler(
-        CommandHandler("done", done)
-    )
-
-    app.add_handler(
-        CommandHandler("cancel", cancel)
-    )
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("new", new_doc))
+    app.add_handler(CommandHandler("done", done))
+    app.add_handler(CommandHandler("cancel", cancel))
+    app.add_handler(CommandHandler("status", status))
 
     app.add_handler(
         MessageHandler(
