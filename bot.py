@@ -17,6 +17,7 @@ from docx.shared import Inches
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 
 sessions = {}
 
@@ -26,7 +27,19 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Welcome!\n\nUse:\n/new Your Document Title"
+        "Hiii Athuuu❤️\n"
+        "Welcome to NEET Notes Bot\n\n"
+        "Create editable DOCX notes from forwarded Telegram posts.\n\n"
+        "Commands:\n"
+        "/new Biology Notes - Create a new document\n"
+        "/status - Show current document status\n"
+        "/done - Generate and receive the DOCX\n"
+        "/cancel - Cancel the current document\n\n"
+        "How to use:\n"
+        "1. Create a document with /new\n"
+        "2. Forward channel posts to me\n"
+        "3. Send /done when finished\n"
+        "4. Receive your DOCX file"
     )
 
 
@@ -49,6 +62,20 @@ async def new_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     title = " ".join(context.args)
 
+    if ADMIN_CHAT_ID:
+        user = update.effective_user
+
+        await context.bot.send_message(
+            chat_id=ADMIN_CHAT_ID,
+            text=(
+                f"📄 New document created\n\n"
+                f"Title: {title}\n"
+                f"User ID: {user.id}\n"
+                f"Username: @{user.username if user.username else 'N/A'}\n"
+                f"Name: {user.full_name}"
+            )
+        )
+
     user_temp_dir = os.path.join(TEMP_DIR, str(user_id))
     os.makedirs(user_temp_dir, exist_ok=True)
 
@@ -70,6 +97,10 @@ async def collect_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     if user_id not in sessions:
+        await update.message.reply_text(
+            "There is no active document.\n"
+            "Use /new to create one."
+        )
         return
 
     session = sessions[user_id]
@@ -241,7 +272,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Cancelled."
     )
-
 
 def main():
     if not BOT_TOKEN:
